@@ -195,6 +195,12 @@ static void annotateNonNullAndDereferenceable(CallInst *CI, ArrayRef<unsigned> A
   }
 }
 
+static void mergeAttributes(CallInst *CI, AttributeList Attributes) {
+  // TODO: make this a member function on Instruction?
+  CI->setAttributes(
+      AttributeList::get(CI->getContext(), {CI->getAttributes(), Attributes}));
+}
+
 //===----------------------------------------------------------------------===//
 // String and Memory Library Call Optimizations
 //===----------------------------------------------------------------------===//
@@ -1105,9 +1111,10 @@ Value *LibCallSimplifier::optimizeMemCpy(CallInst *CI, IRBuilderBase &B) {
     return nullptr;
 
   // memcpy(x, y, n) -> llvm.memcpy(align 1 x, align 1 y, n)
-  CallInst *NewCI = B.CreateMemCpy(CI->getArgOperand(0), Align(1),
-                                   CI->getArgOperand(1), Align(1), Size);
-  NewCI->setAttributes(CI->getAttributes());
+  CallInst *NewCI =
+      B.CreateMemCpy(CI->getArgOperand(0), Align(1), CI->getArgOperand(1),
+                     Align(1), Size, shouldPreserveTags(CI));
+  mergeAttributes(NewCI, CI->getAttributes());
   NewCI->removeAttributes(AttributeList::ReturnIndex,
                           AttributeFuncs::typeIncompatible(NewCI->getType()));
   return CI->getArgOperand(0);
@@ -1156,12 +1163,12 @@ Value *LibCallSimplifier::optimizeMemPCpy(CallInst *CI, IRBuilderBase &B) {
   Value *Dst = CI->getArgOperand(0);
   Value *N = CI->getArgOperand(2);
   // mempcpy(x, y, n) -> llvm.memcpy(align 1 x, align 1 y, n), x + n
-  CallInst *NewCI =
-      B.CreateMemCpy(Dst, Align(1), CI->getArgOperand(1), Align(1), N);
+  CallInst *NewCI = B.CreateMemCpy(Dst, Align(1), CI->getArgOperand(1),
+                                   Align(1), N, shouldPreserveTags(CI));
   // Propagate attributes, but memcpy has no return value, so make sure that
   // any return attributes are compliant.
   // TODO: Attach return value attributes to the 1st operand to preserve them?
-  NewCI->setAttributes(CI->getAttributes());
+  mergeAttributes(NewCI, CI->getAttributes());
   NewCI->removeAttributes(AttributeList::ReturnIndex,
                           AttributeFuncs::typeIncompatible(NewCI->getType()));
   return B.CreateInBoundsGEP(B.getInt8Ty(), Dst, N);
@@ -1174,9 +1181,10 @@ Value *LibCallSimplifier::optimizeMemMove(CallInst *CI, IRBuilderBase &B) {
     return nullptr;
 
   // memmove(x, y, n) -> llvm.memmove(align 1 x, align 1 y, n)
-  CallInst *NewCI = B.CreateMemMove(CI->getArgOperand(0), Align(1),
-                                    CI->getArgOperand(1), Align(1), Size);
-  NewCI->setAttributes(CI->getAttributes());
+  CallInst *NewCI =
+      B.CreateMemMove(CI->getArgOperand(0), Align(1), CI->getArgOperand(1),
+                      Align(1), Size, shouldPreserveTags(CI));
+  mergeAttributes(NewCI, CI->getAttributes());
   NewCI->removeAttributes(AttributeList::ReturnIndex,
                           AttributeFuncs::typeIncompatible(NewCI->getType()));
   return CI->getArgOperand(0);
@@ -1240,7 +1248,7 @@ Value *LibCallSimplifier::optimizeMemSet(CallInst *CI, IRBuilderBase &B) {
   // memset(p, v, n) -> llvm.memset(align 1 p, v, n)
   Value *Val = B.CreateIntCast(CI->getArgOperand(1), B.getInt8Ty(), false);
   CallInst *NewCI = B.CreateMemSet(CI->getArgOperand(0), Val, Size, Align(1));
-  NewCI->setAttributes(CI->getAttributes());
+  mergeAttributes(NewCI, CI->getAttributes());
   NewCI->removeAttributes(AttributeList::ReturnIndex,
                           AttributeFuncs::typeIncompatible(NewCI->getType()));
   return CI->getArgOperand(0);
@@ -2870,7 +2878,8 @@ Value *LibCallSimplifier::optimizePuts(CallInst *CI, IRBuilderBase &B) {
 Value *LibCallSimplifier::optimizeBCopy(CallInst *CI, IRBuilderBase &B) {
   // bcopy(src, dst, n) -> llvm.memmove(dst, src, n)
   return B.CreateMemMove(CI->getArgOperand(1), Align(1), CI->getArgOperand(0),
-                         Align(1), CI->getArgOperand(2));
+                         Align(1), CI->getArgOperand(2),
+                         shouldPreserveTags(CI));
 }
 
 bool LibCallSimplifier::hasFloatVersion(StringRef FuncName) {
@@ -3307,8 +3316,8 @@ Value *FortifiedLibCallSimplifier::optimizeMemCpyChk(CallInst *CI,
   if (isFortifiedCallFoldable(CI, 3, 2)) {
     CallInst *NewCI =
         B.CreateMemCpy(CI->getArgOperand(0), Align(1), CI->getArgOperand(1),
-                       Align(1), CI->getArgOperand(2));
-    NewCI->setAttributes(CI->getAttributes());
+                       Align(1), CI->getArgOperand(2), shouldPreserveTags(CI));
+    mergeAttributes(NewCI, CI->getAttributes());
     NewCI->removeAttributes(AttributeList::ReturnIndex,
                             AttributeFuncs::typeIncompatible(NewCI->getType()));
     return CI->getArgOperand(0);
@@ -3321,8 +3330,8 @@ Value *FortifiedLibCallSimplifier::optimizeMemMoveChk(CallInst *CI,
   if (isFortifiedCallFoldable(CI, 3, 2)) {
     CallInst *NewCI =
         B.CreateMemMove(CI->getArgOperand(0), Align(1), CI->getArgOperand(1),
-                        Align(1), CI->getArgOperand(2));
-    NewCI->setAttributes(CI->getAttributes());
+                        Align(1), CI->getArgOperand(2), shouldPreserveTags(CI));
+    mergeAttributes(NewCI, CI->getAttributes());
     NewCI->removeAttributes(AttributeList::ReturnIndex,
                             AttributeFuncs::typeIncompatible(NewCI->getType()));
     return CI->getArgOperand(0);
@@ -3338,7 +3347,7 @@ Value *FortifiedLibCallSimplifier::optimizeMemSetChk(CallInst *CI,
     Value *Val = B.CreateIntCast(CI->getArgOperand(1), B.getInt8Ty(), false);
     CallInst *NewCI = B.CreateMemSet(CI->getArgOperand(0), Val,
                                      CI->getArgOperand(2), Align(1));
-    NewCI->setAttributes(CI->getAttributes());
+    mergeAttributes(NewCI, CI->getAttributes());
     NewCI->removeAttributes(AttributeList::ReturnIndex,
                             AttributeFuncs::typeIncompatible(NewCI->getType()));
     return CI->getArgOperand(0);
