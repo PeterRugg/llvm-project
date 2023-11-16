@@ -6001,7 +6001,12 @@ const SCEV *ScalarEvolution::createNodeForGEP(GEPOperator *GEP) {
   const DataLayout &DL = F.getParent()->getDataLayout();
   // FIXME: Ideally, we should teach Scalar Evolution to
   // understand fat pointers.
-  if (DL.isFatPointer(GEP->getPointerOperandType()->getPointerAddressSpace()))
+  //if (DL.isFatPointer(GEP->getPointerOperandType()->getPointerAddressSpace()))
+  //  return getUnknown(GEP);
+
+  // XXX (mn416): Until SCEV understands fat pointers, ignore all pointers
+  // (for CHERI v non-CHERI comparisons)
+  if (GEP->getPointerOperandType()->isPointerTy())
     return getUnknown(GEP);
 
   SmallVector<const SCEV *, 4> IndexExprs;
