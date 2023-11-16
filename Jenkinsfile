@@ -13,7 +13,7 @@ def jobProperties = [rateLimitBuilds(throttle: [count: 1, durationName: 'hour', 
                      copyArtifactPermission('*'), // Downstream jobs need the compiler tarball
                      [$class: 'GithubProjectProperty', displayName: '', projectUrlStr: 'https://github.com/CTSRD-CHERI/llvm-project/'],
 ]
-if (env.JOB_NAME.startsWith('CLANG-LLVM-linux/') || env.JOB_NAME.startsWith('CLANG-LLVM-freebsd/')) {
+if (env.JOB_NAME.startsWith('CLANG-LLVM-linux/') || env.JOB_NAME.startsWith('CLANG-LLVM-freebsd/') || true) {
     // Skip pull requests and non-default branches:
     def archiveBranches = ['master', 'dev', 'upstream-llvm-merge', 'disable-scev']
     if (!env.CHANGE_ID && (archiveBranches.contains(env.BRANCH_NAME))) {
