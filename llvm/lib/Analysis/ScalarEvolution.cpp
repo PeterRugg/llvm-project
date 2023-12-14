@@ -6006,8 +6006,9 @@ const SCEV *ScalarEvolution::createNodeForGEP(GEPOperator *GEP) {
 
   // XXX (mn416): Until SCEV understands fat pointers, ignore all pointers
   // (for CHERI v non-CHERI comparisons)
-  if (GEP->getPointerOperandType()->isPointerTy())
-    return getUnknown(GEP);
+  //if (GEP->getPointerOperandType()->isPointerTy())
+  //  return getUnknown(GEP);
+  // XXX Optimistically, let scev free to reaosn about pointers!
 
   SmallVector<const SCEV *, 4> IndexExprs;
   for (Value *Index : GEP->indices())
